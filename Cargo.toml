@@ -1,0 +1,10 @@
+[package]
+name = "pidl2"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kdl = "6.3.4"
+miette = "7.5"
+postcard-schema = { version = "0.2.1", features = ["use-std"] }
+thiserror = "2.0.12"

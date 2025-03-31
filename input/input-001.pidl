@@ -1,0 +1,4 @@
+types {
+    alias "GoodNumber" "u32"
+    alias "GreatNumber" "i32"
+}
