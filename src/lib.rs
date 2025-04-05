@@ -448,13 +448,26 @@ impl UnresolvedTypeDefn<'_> {
         if !new_tyname_legal(name, known) {
             return Err(todo!());
         }
-        match resolve_ty(ty, known) {
-            Ok(Some(t)) => Ok(Some(OwnedNamedType {
-                name: name.to_string(),
-                ty: t.ty,
-            })),
-            Ok(None) => Ok(None),
+        let t = match resolve_ty(ty, known) {
+            Ok(Some(t)) => t,
+            Ok(None) => return Ok(None),
             Err(_) => todo!(),
+        };
+
+        if let OwnedNamedType {
+            name: tname,
+            ty: OwnedDataModelType::Tuple(t),
+        } = t
+        {
+            Ok(Some(OwnedNamedType {
+                name: format!("{name}{tname}"),
+                ty: OwnedDataModelType::TupleStruct(t),
+            }))
+        } else {
+            Ok(Some(OwnedNamedType {
+                name: format!("{name}({})", t.name),
+                ty: OwnedDataModelType::NewtypeStruct(Box::new(t)),
+            }))
         }
     }
 
