@@ -22,14 +22,14 @@ types {
 
     struct "TupleStruct" "(i32, i32)"
 
-    // enum "Example" {
-    //     UnitVariant
-    //     NewtypeVariant "Rgb8"
-    //     TupleVariant "(u32, bool)"
-    //     StructVariant {
-    //         bar "u64"
-    //     }
-    // }
+    enum "Example" {
+        UnitVariant
+        NewtypeVariant "Rgb8"
+        TupleVariant "(u32, bool)"
+        StructVariant {
+            bar "u64"
+        }
+    }
 
     // All the types here can decl in usage position
     struct "AdHocTypes" {

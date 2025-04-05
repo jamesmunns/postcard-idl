@@ -1,7 +1,10 @@
 use kdl::KdlNode;
 use miette::SourceSpan;
 use postcard_schema::{
-    schema::owned::{OwnedDataModelType, OwnedNamedType, OwnedNamedValue},
+    schema::owned::{
+        OwnedDataModelType, OwnedDataModelVariant, OwnedNamedType, OwnedNamedValue,
+        OwnedNamedVariant,
+    },
     Schema,
 };
 use thiserror::Error;
@@ -214,6 +217,25 @@ fn is_valid_rust_tyname(s: &str) -> bool {
 }
 
 #[derive(Debug)]
+enum UnresolvedEnumVar<'a> {
+    UnitVariant {
+        name: &'a str,
+    },
+    NewTypeVariant {
+        name: &'a str,
+        ty: UnresolvedTypeRefr<'a>,
+    },
+    TupleVariant {
+        name: &'a str,
+        fields: Vec<UnresolvedTypeRefr<'a>>,
+    },
+    StructVariant {
+        name: &'a str,
+        fields: Vec<(&'a str, UnresolvedTypeRefr<'a>)>,
+    },
+}
+
+#[derive(Debug)]
 enum UnresolvedTypeDefn<'a> {
     Alias {
         name: &'a str,
@@ -232,6 +254,11 @@ enum UnresolvedTypeDefn<'a> {
     Struct {
         name: &'a str,
         fields: Vec<(&'a str, UnresolvedTypeRefr<'a>)>,
+        span: SourceSpan,
+    },
+    Enum {
+        name: &'a str,
+        variants: Vec<UnresolvedEnumVar<'a>>,
         span: SourceSpan,
     },
 }
@@ -402,6 +429,11 @@ impl UnresolvedTypeDefn<'_> {
             UnresolvedTypeDefn::NewTypeTupleStruct { name, ty, span } => {
                 Self::resolve_newtype_tuple_struct(name, ty, span, known)
             }
+            UnresolvedTypeDefn::Enum {
+                name,
+                variants,
+                span,
+            } => Self::resolve_enum(name, variants, span, known),
         }
     }
 
@@ -510,6 +542,70 @@ impl UnresolvedTypeDefn<'_> {
             }))
         }
     }
+
+    fn resolve_enum(
+        name: &str,
+        variants: &[UnresolvedEnumVar<'_>],
+        span: &SourceSpan,
+        known: &[OwnedNamedType],
+    ) -> Result<Option<OwnedNamedType>, Error> {
+        if !new_tyname_legal(name, known) {
+            return Err(todo!());
+        }
+        let mut rvars = vec![];
+        for var in variants {
+            match var {
+                UnresolvedEnumVar::UnitVariant { name } => {
+                    rvars.push(OwnedNamedVariant {
+                        name: name.to_string(),
+                        ty: OwnedDataModelVariant::UnitVariant,
+                    });
+                }
+                UnresolvedEnumVar::NewTypeVariant { name, ty } => {
+                    let Some(t) = resolve_ty(ty, known)? else {
+                        return Ok(None);
+                    };
+                    rvars.push(OwnedNamedVariant {
+                        name: name.to_string(),
+                        ty: OwnedDataModelVariant::NewtypeVariant(Box::new(t)),
+                    });
+                }
+                UnresolvedEnumVar::TupleVariant { name, fields } => {
+                    let mut rfields = vec![];
+                    for f in fields {
+                        let Some(t) = resolve_ty(f, known)? else {
+                            return Ok(None);
+                        };
+                        rfields.push(t);
+                    }
+                    rvars.push(OwnedNamedVariant {
+                        name: name.to_string(),
+                        ty: OwnedDataModelVariant::TupleVariant(rfields),
+                    });
+                }
+                UnresolvedEnumVar::StructVariant { name, fields } => {
+                    let mut rfields = vec![];
+                    for (n, ty) in fields {
+                        let Some(t) = resolve_ty(ty, known)? else {
+                            return Ok(None);
+                        };
+                        rfields.push(OwnedNamedValue {
+                            name: n.to_string(),
+                            ty: t,
+                        });
+                    }
+                    rvars.push(OwnedNamedVariant {
+                        name: name.to_string(),
+                        ty: OwnedDataModelVariant::StructVariant(rfields),
+                    });
+                }
+            }
+        }
+        Ok(Some(OwnedNamedType {
+            name: name.to_string(),
+            ty: OwnedDataModelType::Enum(rvars),
+        }))
+    }
 }
 
 fn resolve_types(
@@ -605,6 +701,9 @@ impl PidlTypes {
                 for ch in children.nodes() {
                     fields.push(Self::absorb_struct_field(ch)?);
                 }
+
+                // TODO: ensure all field names are unique and valid!
+
                 Ok(UnresolvedTypeDefn::Struct {
                     name,
                     fields,
@@ -613,18 +712,55 @@ impl PidlTypes {
             }
             _ => {
                 panic!("What? {entries:?}, {children:?}");
-            } // }
-              // [name, ty] => {
-              //     if let Some(ch) = node.children() {
-              //         todo!("can't name type and have children")
-              //     }
-              // }
+            }
         }
-        // if let [name] = node.entries() {
+    }
 
-        // } else {
-        //     todo!()
-        // }
+    fn absorb_enum(node: &KdlNode) -> Result<UnresolvedTypeDefn<'_>, Error> {
+        let [name] = node.entries() else {
+            panic!("What? {:?}", node.entries());
+        };
+        let name = name.value().as_string().expect("enum needs a name");
+        let mut variants = vec![];
+        for ch in node.iter_children() {
+            variants.push(Self::absorb_enum_variant(ch)?);
+        }
+
+        // TODO: ensure all variant names are unique and valid!
+
+        Ok(UnresolvedTypeDefn::Enum {
+            name,
+            variants,
+            span: node.span(),
+        })
+    }
+
+    fn absorb_enum_variant(node: &KdlNode) -> Result<UnresolvedEnumVar<'_>, Error> {
+        let name = node.name().value();
+        let entries = node.entries();
+        let children = node.children();
+
+        match (entries, children) {
+            ([], None) => Ok(UnresolvedEnumVar::UnitVariant { name }),
+            ([], Some(children)) => {
+                let mut fields = vec![];
+                for ch in children.nodes() {
+                    fields.push(Self::absorb_struct_field(ch)?);
+                }
+
+                Ok(UnresolvedEnumVar::StructVariant { name, fields })
+            }
+            ([ty], None) => {
+                let ty = ty.value().as_string().expect("ty needs a ty");
+                let item = UnresolvedTypeRefr::parse_entirely(ty)?;
+                if let UnresolvedTypeRefr::Tuple { tys } = item {
+                    Ok(UnresolvedEnumVar::TupleVariant { name, fields: tys })
+                } else {
+                    Ok(UnresolvedEnumVar::NewTypeVariant { name, ty: item })
+                }
+            }
+            _ => todo!("What? entries: {entries:?}, children: {children:?}"),
+        }
     }
 
     pub fn from_node(node: &KdlNode) -> Result<Self, Error> {
@@ -639,6 +775,9 @@ impl PidlTypes {
                 }
                 "struct" => {
                     types.push(Self::absorb_struct(ch)?);
+                }
+                "enum" => {
+                    types.push(Self::absorb_enum(ch)?);
                 }
                 other => todo!("what: '{other}'"),
             }
