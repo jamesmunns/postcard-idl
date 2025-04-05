@@ -1,7 +1,7 @@
-use pidl2::Pidl;
+use postcard_idl::Pidl;
 
 // A small harness
-const INPUT: &str = include_str!("../input/input-001.pidl");
+const INPUT: &str = include_str!("../input/input-001.kdl");
 
 fn main() {
     println!("{INPUT}");
