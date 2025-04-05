@@ -1,4 +1,61 @@
+// Types used
 types {
     alias "GoodNumber" "u32"
     alias "GreatNumber" "i32"
+    struct "Example1"
+    struct "Example2" {
+        bib "u8"
+        bim "u16"
+        bap "u32"
+    }
+    struct "Example3" {
+        doot "bool"
+        dee "Example1"
+        doo "Example2"
+    }
+
+    struct "Rgb8" {
+        r "u8"
+    }
+    struct "UnitStruct"
+    struct "NewTypeStruct" "bool"
+
+    struct "TupleStruct" "(i32, i32)"
+
+    // enum "Example" {
+    //     UnitVariant
+    //     NewtypeVariant "Rgb8"
+    //     TupleVariant "(u32, bool)"
+    //     StructVariant {
+    //         bar "u64"
+    //     }
+    // }
+
+    // All the types here can decl in usage position
+    struct "AdHocTypes" {
+        options "option<u64>"
+        seqs "[u8]"
+        tuples "(bool, bool, u8)"
+        arrays "[u16; 4]"
+        maps "map<string, string>"
+    }
+
+    struct "Primitives" {
+        "ex_bool"   "bool"
+        "ex_i8"     "i8"
+        "ex_i16"    "i16"
+        "ex_i32"    "i32"
+        "ex_i64"    "i64"
+        "ex_i128"   "i128"
+        "ex_u8"     "u8"
+        "ex_u16"    "u16"
+        "ex_u32"    "u32"
+        "ex_u64"    "u64"
+        "ex_u128"   "u128"
+        "ex_f32"    "f32"
+        "ex_f64"    "f64"
+        "ex_char"   "char"
+        "ex_string" "string"
+        "ex_unit"   "unit"
+    }
 }
