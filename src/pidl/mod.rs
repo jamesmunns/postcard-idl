@@ -16,9 +16,17 @@ pub enum Error {
 
     #[error("Validation: {0}")]
     Invalid(String),
+
+    #[error("No Types were found")]
+    NoTypes,
+
+    #[error("Illegal type name: {0}")]
+    BadName(String),
 }
 
-pub struct Pidl {}
+pub struct Pidl {
+    pub types: Vec<OwnedNamedType>,
+}
 
 impl Pidl {
     pub fn parse_from_str(s: &str) -> Result<Self, Error> {
@@ -35,9 +43,13 @@ impl Pidl {
             }
         }
 
-        println!("Types: {types:#?}");
+        let Some(types) = types else {
+            return Err(Error::NoTypes);
+        };
 
-        Ok(Self {})
+        Ok(Self {
+            types: types.resolved,
+        })
     }
 }
 
@@ -440,12 +452,12 @@ impl UnresolvedTypeDefn<'_> {
     fn resolve_alias(
         name: &str,
         ty: &UnresolvedTypeRefr<'_>,
-        span: &SourceSpan,
+        _span: &SourceSpan,
         known: &[OwnedNamedType],
     ) -> Result<Option<OwnedNamedType>, Error> {
         // Is the name illegal?
         if !new_tyname_legal(name, known) {
-            return Err(todo!());
+            return Err(Error::BadName(name.to_string()));
         }
         match resolve_ty(ty, known) {
             Ok(Some(t)) => Ok(Some(OwnedNamedType {
@@ -459,11 +471,11 @@ impl UnresolvedTypeDefn<'_> {
 
     fn resolve_unitstruct(
         name: &str,
-        span: &SourceSpan,
+        _span: &SourceSpan,
         known: &[OwnedNamedType],
     ) -> Result<Option<OwnedNamedType>, Error> {
         if !new_tyname_legal(name, known) {
-            return Err(todo!());
+            return Err(Error::BadName(name.to_string()));
         }
         Ok(Some(OwnedNamedType {
             name: name.to_string(),
@@ -474,11 +486,11 @@ impl UnresolvedTypeDefn<'_> {
     fn resolve_newtype_tuple_struct(
         name: &str,
         ty: &UnresolvedTypeRefr<'_>,
-        span: &SourceSpan,
+        _span: &SourceSpan,
         known: &[OwnedNamedType],
     ) -> Result<Option<OwnedNamedType>, Error> {
         if !new_tyname_legal(name, known) {
-            return Err(todo!());
+            return Err(Error::BadName(name.to_string()));
         }
         let t = match resolve_ty(ty, known) {
             Ok(Some(t)) => t,
@@ -506,11 +518,11 @@ impl UnresolvedTypeDefn<'_> {
     fn resolve_struct(
         name: &str,
         fields: &[(&str, UnresolvedTypeRefr<'_>)],
-        span: &SourceSpan,
+        _span: &SourceSpan,
         known: &[OwnedNamedType],
     ) -> Result<Option<OwnedNamedType>, Error> {
         if !new_tyname_legal(name, known) {
-            return Err(todo!());
+            return Err(Error::BadName(name.to_string()));
         }
         let mut rfields = vec![];
         for (fname, fty) in fields {
@@ -546,11 +558,11 @@ impl UnresolvedTypeDefn<'_> {
     fn resolve_enum(
         name: &str,
         variants: &[UnresolvedEnumVariant<'_>],
-        span: &SourceSpan,
+        _span: &SourceSpan,
         known: &[OwnedNamedType],
     ) -> Result<Option<OwnedNamedType>, Error> {
         if !new_tyname_legal(name, known) {
-            return Err(todo!());
+            return Err(Error::BadName(name.to_string()));
         }
         let mut rvars = vec![];
         for var in variants {
