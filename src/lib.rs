@@ -217,19 +217,19 @@ fn is_valid_rust_tyname(s: &str) -> bool {
 }
 
 #[derive(Debug)]
-enum UnresolvedEnumVar<'a> {
-    UnitVariant {
+enum UnresolvedEnumVariant<'a> {
+    Unit {
         name: &'a str,
     },
-    NewTypeVariant {
+    NewType {
         name: &'a str,
         ty: UnresolvedTypeRefr<'a>,
     },
-    TupleVariant {
+    Tuple {
         name: &'a str,
         fields: Vec<UnresolvedTypeRefr<'a>>,
     },
-    StructVariant {
+    Struct {
         name: &'a str,
         fields: Vec<(&'a str, UnresolvedTypeRefr<'a>)>,
     },
@@ -258,7 +258,7 @@ enum UnresolvedTypeDefn<'a> {
     },
     Enum {
         name: &'a str,
-        variants: Vec<UnresolvedEnumVar<'a>>,
+        variants: Vec<UnresolvedEnumVariant<'a>>,
         span: SourceSpan,
     },
 }
@@ -545,7 +545,7 @@ impl UnresolvedTypeDefn<'_> {
 
     fn resolve_enum(
         name: &str,
-        variants: &[UnresolvedEnumVar<'_>],
+        variants: &[UnresolvedEnumVariant<'_>],
         span: &SourceSpan,
         known: &[OwnedNamedType],
     ) -> Result<Option<OwnedNamedType>, Error> {
@@ -555,13 +555,13 @@ impl UnresolvedTypeDefn<'_> {
         let mut rvars = vec![];
         for var in variants {
             match var {
-                UnresolvedEnumVar::UnitVariant { name } => {
+                UnresolvedEnumVariant::Unit { name } => {
                     rvars.push(OwnedNamedVariant {
                         name: name.to_string(),
                         ty: OwnedDataModelVariant::UnitVariant,
                     });
                 }
-                UnresolvedEnumVar::NewTypeVariant { name, ty } => {
+                UnresolvedEnumVariant::NewType { name, ty } => {
                     let Some(t) = resolve_ty(ty, known)? else {
                         return Ok(None);
                     };
@@ -570,7 +570,7 @@ impl UnresolvedTypeDefn<'_> {
                         ty: OwnedDataModelVariant::NewtypeVariant(Box::new(t)),
                     });
                 }
-                UnresolvedEnumVar::TupleVariant { name, fields } => {
+                UnresolvedEnumVariant::Tuple { name, fields } => {
                     let mut rfields = vec![];
                     for f in fields {
                         let Some(t) = resolve_ty(f, known)? else {
@@ -583,7 +583,7 @@ impl UnresolvedTypeDefn<'_> {
                         ty: OwnedDataModelVariant::TupleVariant(rfields),
                     });
                 }
-                UnresolvedEnumVar::StructVariant { name, fields } => {
+                UnresolvedEnumVariant::Struct { name, fields } => {
                     let mut rfields = vec![];
                     for (n, ty) in fields {
                         let Some(t) = resolve_ty(ty, known)? else {
@@ -612,6 +612,8 @@ fn resolve_types(
     known: &mut Vec<OwnedNamedType>,
     unknown: &mut Vec<UnresolvedTypeDefn<'_>>,
 ) -> Result<(), Error> {
+    // This is potentially the worst way to do this. We loop over and over as
+    // long as we keep resolving SOMETHING.
     while !unknown.is_empty() {
         let mut progress = false;
         let mut old_unks = core::mem::take(unknown);
@@ -735,28 +737,28 @@ impl PidlTypes {
         })
     }
 
-    fn absorb_enum_variant(node: &KdlNode) -> Result<UnresolvedEnumVar<'_>, Error> {
+    fn absorb_enum_variant(node: &KdlNode) -> Result<UnresolvedEnumVariant<'_>, Error> {
         let name = node.name().value();
         let entries = node.entries();
         let children = node.children();
 
         match (entries, children) {
-            ([], None) => Ok(UnresolvedEnumVar::UnitVariant { name }),
+            ([], None) => Ok(UnresolvedEnumVariant::Unit { name }),
             ([], Some(children)) => {
                 let mut fields = vec![];
                 for ch in children.nodes() {
                     fields.push(Self::absorb_struct_field(ch)?);
                 }
 
-                Ok(UnresolvedEnumVar::StructVariant { name, fields })
+                Ok(UnresolvedEnumVariant::Struct { name, fields })
             }
             ([ty], None) => {
                 let ty = ty.value().as_string().expect("ty needs a ty");
                 let item = UnresolvedTypeRefr::parse_entirely(ty)?;
                 if let UnresolvedTypeRefr::Tuple { tys } = item {
-                    Ok(UnresolvedEnumVar::TupleVariant { name, fields: tys })
+                    Ok(UnresolvedEnumVariant::Tuple { name, fields: tys })
                 } else {
-                    Ok(UnresolvedEnumVar::NewTypeVariant { name, ty: item })
+                    Ok(UnresolvedEnumVariant::NewType { name, ty: item })
                 }
             }
             _ => todo!("What? entries: {entries:?}, children: {children:?}"),
