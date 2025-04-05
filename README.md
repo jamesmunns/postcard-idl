@@ -21,3 +21,12 @@
     - Endpoints
     - Types
     - "protocols"
+- [ ] Update to use the unreleased `postcard-schema` changes
+- [ ] Formatter for input files - `pidl fmt`
+- [ ] Imports/includes
+    - [ ] Importing syntax, `use "../example.kdl" as example`?
+    - [ ] referencing scoped types, e.g. `alias "Boop" "example::Booper"`
+- [ ] Import types from Rust crates?
+    - This would be very silly and very cool
+    - `use "chrono@0.4.40`
+    - doubly so if we could automagically derive `Schema` for this?
