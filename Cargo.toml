@@ -1,5 +1,5 @@
 [package]
-name = "pidl2"
+name = "postcard-idl"
 version = "0.1.0"
 edition = "2021"
 
