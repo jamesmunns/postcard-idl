@@ -1,3 +1,23 @@
+//! PIDL Parser
+//!
+//! The goal of this file is to turn an input KDL file into a set of
+//! `OwnedNameType`s, from `postcard-schema`, which we use as our
+//! "intermediate representation".
+//!
+//! The general flow here is:
+//!
+//! KDL -> Unresolved Types -> OwnedNameTypes
+//!
+//! We first do one pass over the input, iterating using KDL nodes, gathering
+//! "Unresolved" pieces, which are syntactic elements without having connected
+//! them as final types. These can be `UnresolvedTypeDefn`, or items that are
+//! *defining* a type, or `UnresolvedTypeRefr`, which are places where we are
+//! *referencing* some other type.
+//!
+//! We then do "resolution", which attempts to convert all `UnresolvedTypeDefn`
+//! into `OwnedNameTypes`, and convert all `UnresolvedTypeRefr` into the resolved
+//! `OwnedNameTypes`.
+
 use kdl::KdlNode;
 use miette::SourceSpan;
 use postcard_schema::{
@@ -9,6 +29,167 @@ use postcard_schema::{
 };
 
 use super::Error;
+
+#[derive(Debug)]
+pub struct PidlTypes {
+    pub(crate) resolved: Vec<OwnedNamedType>,
+}
+
+impl PidlTypes {
+    fn absorb_alias(node: &KdlNode) -> Result<UnresolvedTypeDefn<'_>, Error> {
+        if let [name, ty] = node.entries() {
+            let name = name
+                .value()
+                .as_string()
+                .expect("alias should have two string args");
+            let ty = ty
+                .value()
+                .as_string()
+                .expect("alias should have two string args");
+
+            Ok(UnresolvedTypeDefn::Alias {
+                name,
+                ty: UnresolvedTypeRefr::parse_entirely(ty)?,
+                span: node.span(),
+            })
+        } else {
+            todo!("alias should have two string args")
+        }
+    }
+
+    fn absorb_struct_field(node: &KdlNode) -> Result<(&str, UnresolvedTypeRefr<'_>), Error> {
+        let name = node.name().value();
+        if let [ty] = node.entries() {
+            let ty = ty
+                .value()
+                .as_string()
+                .expect("struct field should have two string args");
+            Ok((name, UnresolvedTypeRefr::parse_entirely(ty)?))
+        } else {
+            todo!()
+        }
+    }
+
+    fn absorb_struct(node: &KdlNode) -> Result<UnresolvedTypeDefn<'_>, Error> {
+        let entries = node.entries();
+        let children = node.children();
+
+        match (entries, children) {
+            ([name], None) => {
+                // UnitStruct
+                let name = name.value().as_string().expect("struct needs a name");
+                Ok(UnresolvedTypeDefn::UnitStruct {
+                    name,
+                    span: node.span(),
+                })
+            }
+            ([name, ty], None) => {
+                // newtypestruct/tuplestruct
+                let name = name.value().as_string().expect("struct needs a name");
+                let ty = ty.value().as_string().expect("ty needs a ty");
+                Ok(UnresolvedTypeDefn::NewTypeTupleStruct {
+                    name,
+                    ty: UnresolvedTypeRefr::parse_entirely(ty)?,
+                    span: node.span(),
+                })
+            }
+            ([name], Some(children)) => {
+                // struct
+                let name = name.value().as_string().expect("struct needs a name");
+
+                let mut fields = vec![];
+                for ch in children.nodes() {
+                    fields.push(Self::absorb_struct_field(ch)?);
+                }
+
+                // TODO: ensure all field names are unique and valid!
+
+                Ok(UnresolvedTypeDefn::Struct {
+                    name,
+                    fields,
+                    span: node.span(),
+                })
+            }
+            _ => {
+                panic!("What? {entries:?}, {children:?}");
+            }
+        }
+    }
+
+    fn absorb_enum(node: &KdlNode) -> Result<UnresolvedTypeDefn<'_>, Error> {
+        let [name] = node.entries() else {
+            panic!("What? {:?}", node.entries());
+        };
+        let name = name.value().as_string().expect("enum needs a name");
+        let mut variants = vec![];
+        for ch in node.iter_children() {
+            variants.push(Self::absorb_enum_variant(ch)?);
+        }
+
+        // TODO: ensure all variant names are unique and valid!
+
+        Ok(UnresolvedTypeDefn::Enum {
+            name,
+            variants,
+            span: node.span(),
+        })
+    }
+
+    fn absorb_enum_variant(node: &KdlNode) -> Result<UnresolvedEnumVariant<'_>, Error> {
+        let name = node.name().value();
+        let entries = node.entries();
+        let children = node.children();
+
+        match (entries, children) {
+            ([], None) => Ok(UnresolvedEnumVariant::Unit { name }),
+            ([], Some(children)) => {
+                let mut fields = vec![];
+                for ch in children.nodes() {
+                    fields.push(Self::absorb_struct_field(ch)?);
+                }
+
+                Ok(UnresolvedEnumVariant::Struct { name, fields })
+            }
+            ([ty], None) => {
+                let ty = ty.value().as_string().expect("ty needs a ty");
+                let item = UnresolvedTypeRefr::parse_entirely(ty)?;
+                if let UnresolvedTypeRefr::Tuple { tys } = item {
+                    Ok(UnresolvedEnumVariant::Tuple { name, fields: tys })
+                } else {
+                    Ok(UnresolvedEnumVariant::NewType { name, ty: item })
+                }
+            }
+            _ => todo!("What? entries: {entries:?}, children: {children:?}"),
+        }
+    }
+
+    pub fn from_node(node: &KdlNode) -> Result<Self, Error> {
+        assert!(node.entries().is_empty());
+
+        let mut types = vec![];
+
+        for ch in node.iter_children() {
+            match ch.name().value() {
+                "alias" => {
+                    types.push(Self::absorb_alias(ch)?);
+                }
+                "struct" => {
+                    types.push(Self::absorb_struct(ch)?);
+                }
+                "enum" => {
+                    types.push(Self::absorb_enum(ch)?);
+                }
+                other => todo!("what: '{other}'"),
+            }
+        }
+
+        // TODO: Actually resolve types!
+        let mut rtypes = vec![];
+        resolve_types(&mut rtypes, &mut types)?;
+
+        Ok(Self { resolved: rtypes })
+    }
+}
 
 #[derive(Debug)]
 enum UnresolvedTypeRefr<'a> {
@@ -600,165 +781,4 @@ fn resolve_types(
         }
     }
     Ok(())
-}
-
-#[derive(Debug)]
-pub struct PidlTypes {
-    pub(crate) resolved: Vec<OwnedNamedType>,
-}
-
-impl PidlTypes {
-    fn absorb_alias(node: &KdlNode) -> Result<UnresolvedTypeDefn<'_>, Error> {
-        if let [name, ty] = node.entries() {
-            let name = name
-                .value()
-                .as_string()
-                .expect("alias should have two string args");
-            let ty = ty
-                .value()
-                .as_string()
-                .expect("alias should have two string args");
-
-            Ok(UnresolvedTypeDefn::Alias {
-                name,
-                ty: UnresolvedTypeRefr::parse_entirely(ty)?,
-                span: node.span(),
-            })
-        } else {
-            todo!("alias should have two string args")
-        }
-    }
-
-    fn absorb_struct_field(node: &KdlNode) -> Result<(&str, UnresolvedTypeRefr<'_>), Error> {
-        let name = node.name().value();
-        if let [ty] = node.entries() {
-            let ty = ty
-                .value()
-                .as_string()
-                .expect("struct field should have two string args");
-            Ok((name, UnresolvedTypeRefr::parse_entirely(ty)?))
-        } else {
-            todo!()
-        }
-    }
-
-    fn absorb_struct(node: &KdlNode) -> Result<UnresolvedTypeDefn<'_>, Error> {
-        let entries = node.entries();
-        let children = node.children();
-
-        match (entries, children) {
-            ([name], None) => {
-                // UnitStruct
-                let name = name.value().as_string().expect("struct needs a name");
-                Ok(UnresolvedTypeDefn::UnitStruct {
-                    name,
-                    span: node.span(),
-                })
-            }
-            ([name, ty], None) => {
-                // newtypestruct/tuplestruct
-                let name = name.value().as_string().expect("struct needs a name");
-                let ty = ty.value().as_string().expect("ty needs a ty");
-                Ok(UnresolvedTypeDefn::NewTypeTupleStruct {
-                    name,
-                    ty: UnresolvedTypeRefr::parse_entirely(ty)?,
-                    span: node.span(),
-                })
-            }
-            ([name], Some(children)) => {
-                // struct
-                let name = name.value().as_string().expect("struct needs a name");
-
-                let mut fields = vec![];
-                for ch in children.nodes() {
-                    fields.push(Self::absorb_struct_field(ch)?);
-                }
-
-                // TODO: ensure all field names are unique and valid!
-
-                Ok(UnresolvedTypeDefn::Struct {
-                    name,
-                    fields,
-                    span: node.span(),
-                })
-            }
-            _ => {
-                panic!("What? {entries:?}, {children:?}");
-            }
-        }
-    }
-
-    fn absorb_enum(node: &KdlNode) -> Result<UnresolvedTypeDefn<'_>, Error> {
-        let [name] = node.entries() else {
-            panic!("What? {:?}", node.entries());
-        };
-        let name = name.value().as_string().expect("enum needs a name");
-        let mut variants = vec![];
-        for ch in node.iter_children() {
-            variants.push(Self::absorb_enum_variant(ch)?);
-        }
-
-        // TODO: ensure all variant names are unique and valid!
-
-        Ok(UnresolvedTypeDefn::Enum {
-            name,
-            variants,
-            span: node.span(),
-        })
-    }
-
-    fn absorb_enum_variant(node: &KdlNode) -> Result<UnresolvedEnumVariant<'_>, Error> {
-        let name = node.name().value();
-        let entries = node.entries();
-        let children = node.children();
-
-        match (entries, children) {
-            ([], None) => Ok(UnresolvedEnumVariant::Unit { name }),
-            ([], Some(children)) => {
-                let mut fields = vec![];
-                for ch in children.nodes() {
-                    fields.push(Self::absorb_struct_field(ch)?);
-                }
-
-                Ok(UnresolvedEnumVariant::Struct { name, fields })
-            }
-            ([ty], None) => {
-                let ty = ty.value().as_string().expect("ty needs a ty");
-                let item = UnresolvedTypeRefr::parse_entirely(ty)?;
-                if let UnresolvedTypeRefr::Tuple { tys } = item {
-                    Ok(UnresolvedEnumVariant::Tuple { name, fields: tys })
-                } else {
-                    Ok(UnresolvedEnumVariant::NewType { name, ty: item })
-                }
-            }
-            _ => todo!("What? entries: {entries:?}, children: {children:?}"),
-        }
-    }
-
-    pub fn from_node(node: &KdlNode) -> Result<Self, Error> {
-        assert!(node.entries().is_empty());
-
-        let mut types = vec![];
-
-        for ch in node.iter_children() {
-            match ch.name().value() {
-                "alias" => {
-                    types.push(Self::absorb_alias(ch)?);
-                }
-                "struct" => {
-                    types.push(Self::absorb_struct(ch)?);
-                }
-                "enum" => {
-                    types.push(Self::absorb_enum(ch)?);
-                }
-                other => todo!("what: '{other}'"),
-            }
-        }
-
-        // TODO: Actually resolve types!
-        let mut rtypes = vec![];
-        resolve_types(&mut rtypes, &mut types)?;
-
-        Ok(Self { resolved: rtypes })
-    }
 }

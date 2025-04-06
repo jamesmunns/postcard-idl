@@ -1,7 +1,9 @@
 // TODO: Probably turn most? of these methods into some kind of trait
 // shared with multiple generators
 
-use postcard_schema::schema::owned::{OwnedDataModelType, OwnedDataModelVariant, OwnedNamedType, OwnedNamedValue, OwnedNamedVariant};
+use postcard_schema::schema::owned::{
+    OwnedDataModelType, OwnedDataModelVariant, OwnedNamedType, OwnedNamedValue, OwnedNamedVariant,
+};
 
 use crate::Pidl;
 use core::fmt::Write;
@@ -23,7 +25,7 @@ pub fn generate_rust_std(p: &Pidl) -> Output {
 fn generate_std_ty(out: &mut Output, ty: &OwnedNamedType) {
     match &ty.ty {
         //
-        // TODO: make sure these are aliases
+        // Primitive type definitions (at the top level) are always aliases
         //
         OwnedDataModelType::Bool => generate_alias(out, &ty.name, "bool"),
         OwnedDataModelType::I8 => generate_alias(out, &ty.name, "i8"),
@@ -45,16 +47,37 @@ fn generate_std_ty(out: &mut Output, ty: &OwnedNamedType) {
         OwnedDataModelType::ByteArray => generate_alias(out, &ty.name, "Vec<u8>"),
         OwnedDataModelType::Unit => generate_alias(out, &ty.name, "()"),
 
-        OwnedDataModelType::Option(owned_named_type) => generate_option_alias(out, &ty.name, owned_named_type),
-        OwnedDataModelType::UnitStruct => generate_unit_struct(out, &ty.name),
-        OwnedDataModelType::NewtypeStruct(owned_named_type) => generate_newtype_struct(out, &ty.name, owned_named_type),
-        OwnedDataModelType::Seq(owned_named_type) => generate_seq_alias(out, &ty.name, owned_named_type),
-        OwnedDataModelType::Tuple(owned_named_types) => generate_tuple_alias(out, &ty.name, owned_named_types),
-        OwnedDataModelType::TupleStruct(owned_named_types) => generate_tuple_struct(out, &ty.name, owned_named_types),
+        //
+        // Non-Primitive builtins (at the top level) are always aliases
+        //
+        OwnedDataModelType::Option(owned_named_type) => {
+            generate_option_alias(out, &ty.name, owned_named_type)
+        }
+        OwnedDataModelType::Seq(owned_named_type) => {
+            generate_seq_alias(out, &ty.name, owned_named_type)
+        }
+        OwnedDataModelType::Tuple(owned_named_types) => {
+            generate_tuple_alias(out, &ty.name, owned_named_types)
+        }
         OwnedDataModelType::Map { key, val } => generate_map_alias(out, &ty.name, key, val),
-        OwnedDataModelType::Struct(owned_named_values) => generate_struct(out, &ty.name, owned_named_values),
-        OwnedDataModelType::Enum(owned_named_variants) => generate_enum(out, &ty.name, owned_named_variants),
         OwnedDataModelType::Schema => generate_schema_alias(out, &ty.name),
+
+        //
+        // These are new type declarations/custom user types
+        //
+        OwnedDataModelType::UnitStruct => generate_unit_struct(out, &ty.name),
+        OwnedDataModelType::NewtypeStruct(owned_named_type) => {
+            generate_newtype_struct(out, &ty.name, owned_named_type)
+        }
+        OwnedDataModelType::TupleStruct(owned_named_types) => {
+            generate_tuple_struct(out, &ty.name, owned_named_types)
+        }
+        OwnedDataModelType::Struct(owned_named_values) => {
+            generate_struct(out, &ty.name, owned_named_values)
+        }
+        OwnedDataModelType::Enum(owned_named_variants) => {
+            generate_enum(out, &ty.name, owned_named_variants)
+        }
     }
 }
 
@@ -70,7 +93,12 @@ fn generate_option_alias(out: &mut Output, name: &str, ont: &OwnedNamedType) {
 
 fn generate_tuple_alias(out: &mut Output, name: &str, owned_named_types: &[OwnedNamedType]) {
     write!(&mut out.aliases, "pub type {} = ", name).unwrap();
-    write!(&mut out.aliases, "{}", tuple_or_array_refr(owned_named_types)).unwrap();
+    write!(
+        &mut out.aliases,
+        "{}",
+        tuple_or_array_refr(owned_named_types)
+    )
+    .unwrap();
     writeln!(&mut out.aliases, ";").unwrap();
 }
 
@@ -101,12 +129,12 @@ fn generate_enum(out: &mut Output, name: &str, owned_named_variants: &[OwnedName
         match &v.ty {
             OwnedDataModelVariant::UnitVariant => {
                 writeln!(&mut out.types, ",").unwrap();
-            },
+            }
             OwnedDataModelVariant::NewtypeVariant(owned_named_type) => {
                 write!(&mut out.types, "(").unwrap();
                 write_ty_refr(&mut out.types, owned_named_type);
                 writeln!(&mut out.types, "),").unwrap();
-            },
+            }
             OwnedDataModelVariant::TupleVariant(owned_named_types) => {
                 let mut items = vec![];
                 for v in owned_named_types {
@@ -116,7 +144,7 @@ fn generate_enum(out: &mut Output, name: &str, owned_named_variants: &[OwnedName
                 }
                 let all = items.join(", ");
                 writeln!(&mut out.types, "({all}),").unwrap();
-            },
+            }
             OwnedDataModelVariant::StructVariant(owned_named_values) => {
                 writeln!(&mut out.types, " {{").unwrap();
                 for v in owned_named_values {
@@ -125,7 +153,7 @@ fn generate_enum(out: &mut Output, name: &str, owned_named_variants: &[OwnedName
                     writeln!(&mut out.types, ",").unwrap();
                 }
                 writeln!(&mut out.types, "    }},").unwrap();
-            },
+            }
         }
     }
     writeln!(&mut out.types, "}}").unwrap();

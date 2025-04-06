@@ -37,6 +37,7 @@ me know you plan to work on any of these.
 - [ ] Generate "Borrowed" variants, both for types themselves, AND for any types that include them
 - [ ] Generate heapless types in no-std mode
     - Generic over length?
+- [ ] Generate protocol documents with `Typst`
 
 ### Known Defects
 
