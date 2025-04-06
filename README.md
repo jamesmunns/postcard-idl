@@ -4,6 +4,9 @@
 
 ## Todos
 
+PRs welcome on any item on these lists. Please open an issue if you want to let
+me know you plan to work on any of these.
+
 ### Robustness
 
 - [ ] Better Error Handling
@@ -30,3 +33,13 @@
     - This would be very silly and very cool
     - `use "chrono@0.4.40`
     - doubly so if we could automagically derive `Schema` for this?
+- [ ] Handle doc comments?
+- [ ] Generate "Borrowed" variants, both for types themselves, AND for any types that include them
+- [ ] Generate heapless types in no-std mode
+    - Generic over length?
+
+### Known Defects
+
+- [ ] You can't define a tuple struct and then refer to it
+    - define: `struct "TupleStruct" "(i32, i32)"`
+    - usage: `alias "Renamed" "TupleStruct"` (doesn't work)

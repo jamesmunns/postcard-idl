@@ -2,6 +2,11 @@
 types {
     alias "GoodNumber" "u32"
     alias "GreatNumber" "i32"
+    alias "MaybeNumber" "option<f64>"
+    alias "ManyNumbers" "(u8, u16, u32)"
+    alias "SameNumbers" "[i16; 8]"
+    alias "SomeNumbers" "[i16]"
+
     struct "Example1"
     struct "Example2" {
         bib "u8"
@@ -21,6 +26,8 @@ types {
     struct "NewTypeStruct" "bool"
 
     struct "TupleStruct" "(i32, i32)"
+    // TODO: This doesn't work - parser
+    // alias "AlterTupleStruct" "TupleStruct"
 
     enum "Example" {
         UnitVariant
@@ -28,6 +35,8 @@ types {
         TupleVariant "(u32, bool)"
         StructVariant {
             bar "u64"
+            // TODO: This doesn't work - parser
+            // tricky "TupleStruct"
         }
     }
 
